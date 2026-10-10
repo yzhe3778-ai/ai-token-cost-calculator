@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Estimate API token costs locally with your own rates, cached input and repeat usage. No account or API key required.">
+  <title>AI Token Cost Calculator · AI Price Spy</title>
+  <style>
+    :root{color-scheme:light dark;font:16px/1.6 system-ui,sans-serif;--bg:#f4f7f5;--card:#fff;--text:#152b24;--muted:#51665e;--line:#cad9d1;--brand:#176846}
+    @media(prefers-color-scheme:dark){:root{--bg:#14251e;--card:#20382d;--text:#eef7f1;--muted:#bdd0c4;--line:#4e685a;--brand:#89d9ad}}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text)}main{max-width:960px;margin:0 auto;padding:32px 20px}header{display:flex;gap:20px;justify-content:space-between;align-items:center}h1{font-size:clamp(1.8rem,4vw,2.6rem);line-height:1.2}h2{font-size:1.3rem}a{color:var(--brand)}.muted{color:var(--muted)}.card{border:1px solid var(--line);border-radius:16px;padding:24px;background:var(--card);margin:24px 0}.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}label{display:block;font-weight:600}small{display:block;font-weight:400;color:var(--muted)}input,select,button{font:inherit;border:1px solid var(--line);border-radius:8px;padding:10px;max-width:100%}input,select{color:var(--text);background:var(--bg)}input{width:100%;margin-top:5px}button{cursor:pointer;color:var(--text);background:var(--bg)}button[type=submit]{background:var(--brand);color:var(--card);font-weight:700}.actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:24px}.error{color:#d14331;font-weight:600}.total{font-size:2rem;font-weight:750;overflow-wrap:anywhere}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px 0;border-bottom:1px solid var(--line)}td:last-child{text-align:right}code{font-size:.9em}.formula{overflow-wrap:anywhere}@media(max-width:560px){.fields{grid-template-columns:1fr}.card{padding:18px}header{align-items:flex-start}}
+  </style>
+</head>
+<body>
+<main>
+  <header><a href="https://aipricespy.com/">AI Price Spy</a><label><span class="sr" data-i="language">Language</span> <select id="language"><option value="en">English</option><option value="zh-CN">中文</option></select></label></header>
+  <h1 data-i="title">AI token cost calculator</h1>
+  <p data-i="lead">Use your provider's rates to estimate token charges. All calculations stay in this browser; no account, API key or external request is needed.</p>
+  <p class="muted" data-i="disclaimer">This tool does not retrieve live prices. Example rates are fictional teaching inputs, not official model prices. Taxes, subscriptions, cache writes, storage, tool calls and minimum charges are excluded.</p>
+  <form class="card" id="cost-form" novalidate>
+    <h2 data-i="inputs">Usage and rates</h2>
+    <div class="fields">
+      <label><span data-i="inputTokens">Normalized input total</span><small data-i="inputHint">Ordinary input plus cache reads; exclude separately billed cache writes. Check your API usage field definitions first.</small><input name="inputTokens" type="number" min="0" max="1000000000000" step="1" value="1000000" required></label>
+      <label><span data-i="outputTokens">Output tokens</span><small data-i="outputHint">Use billed output tokens, including billed reasoning when applicable.</small><input name="outputTokens" type="number" min="0" max="1000000000000" step="1" value="200000" required></label>
+      <label><span data-i="cachedTokens">Cached input tokens</span><small data-i="cachedHint">A subset of total input, not extra input.</small><input name="cachedInputTokens" type="number" min="0" max="1000000000000" step="1" value="0" required></label>
+      <label><span data-i="inputRate">Uncached input rate / 1M tokens</span><input name="inputRate" type="number" min="0" step="any" required></label>
+      <label><span data-i="outputRate">Output rate / 1M tokens</span><input name="outputRate" type="number" min="0" step="any" required></label>
+      <label><span data-i="cachedRate">Cached input rate / 1M tokens</span><small data-i="cachedRateHint">Required when cached tokens are greater than zero.</small><input name="cachedInputRate" type="number" min="0" step="any"></label>
+      <label><span data-i="multiplier">Attempt multiplier</span><small data-i="multiplierHint">1 means no repeat. 1.5 assumes 50% additional identical usage; it is a scenario, not a measured retry rate.</small><input name="attemptMultiplier" type="number" min="1" max="1000" step="any" value="1" required></label>
+      <label><span data-i="currency">Currency label</span><small data-i="currencyHint">All entered rates must use this same currency. This changes the label only.</small><select name="currency"><option>USD</option><option>CNY</option><option>EUR</option></select></label>
+    </div>
+    <div class="actions"><button type="submit" data-i="calculate">Calculate</button><button type="button" id="example" data-i="example">Fill fictional example</button></div>
+    <p id="example-note" class="muted" hidden data-i="exampleNote">Fictional example: input 2, output 10 and cache 0.5 per million tokens. These are not vendor quotations.</p>
+    <p class="error" id="error" role="alert"></p>
+  </form>
+  <section class="card" id="result" aria-live="polite" hidden>
+    <h2 data-i="result">Estimated token charge</h2><div class="total" id="total"></div>
+    <table><tbody id="breakdown"></tbody></table>
+    <p class="muted" data-i="resultHint">This is a scenario estimate, not an invoice. If retries use different input, output or caching, calculate their actual usage separately.</p>
+  </section>
+  <section class="card"><h2 data-i="formulaTitle">How it is calculated</h2>
+    <p class="formula" data-i="formula">[(total input − cached input) × input rate + cached input × cache rate + output × output rate] ÷ 1,000,000 × attempt multiplier</p>
+    <p data-i="sourceHint">Copy matching units and billing conditions from your provider. A per-1K-token rate must be multiplied by 1,000 before entering it here. Cache creation and cache reads may have different fees.</p>
+    <p><a id="guide" href="https://aipricespy.com/en/services/guides/billing-basics" data-i="guide">Read the API cost guide</a></p>
+  </section>
+  <footer class="muted"><span data-i="privacy">No analytics, cookies, API credentials or data collection. Your entered values are not stored.</span> · <a href="https://aipricespy.com/methodology" data-i="methodology">Data methodology</a></footer>
+</main>
+<script type="module">
+  import { calculateCost } from './calculator.js';
+  const translations = {
+    'zh-CN': {
+      language:'语言',title:'AI Token 成本计算器',lead:'填写服务商报价，估算 Token 费用。计算在当前浏览器完成，无需账号、API Key 或外部请求。',disclaimer:'本工具不读取实时价格。示例单价仅为教学假设，不是模型官方报价；结果不含税费、订阅、缓存写入、存储、工具调用或最低消费。',inputs:'用量与报价',inputTokens:'归一后的输入 Token 总量',inputHint:'普通输入 + 缓存读取，不含另行计费的缓存写入；先核对 API 字段定义。',outputTokens:'输出 Token 数量',outputHint:'填写实际计费输出，适用时包含计费推理 Token。',cachedTokens:'缓存命中的输入 Token',cachedHint:'属于输入总量的一部分，不额外叠加。',inputRate:'普通输入单价 / 百万 Token',outputRate:'输出单价 / 百万 Token',cachedRate:'缓存读取单价 / 百万 Token',cachedRateHint:'缓存数量大于 0 时必须明确填写。',multiplier:'请求次数倍率',multiplierHint:'1 表示无重复；1.5 假设额外 50% 相同用量，只是算例场景，不是实测重试率。',currency:'币种标签',currencyHint:'所有单价必须采用同一币种。切换仅改变标签，不进行汇率换算。',calculate:'计算费用',example:'填写教学示例',exampleNote:'假设单价：普通输入 2、输出 10、缓存读取 0.5 / 百万 Token。不是服务商报价。',result:'预计 Token 费用',resultHint:'这是场景估算，不是账单。重试用量或缓存情况不同时，请单独计算实际用量。',formulaTitle:'计算方法',formula:'[(输入总量 − 缓存输入) × 普通输入单价 + 缓存输入 × 缓存读取单价 + 输出 × 输出单价] ÷ 1,000,000 × 请求次数倍率',sourceHint:'核对服务商的计费单位和条件。每千 Token 单价要乘以 1,000，才能填入这里；缓存写入与读取也可能分别收费。',guide:'阅读 API 成本指南',privacy:'没有统计追踪、Cookie、API 凭据或数据采集；不会保存填写的数据。',methodology:'数据方法',ordinary:'普通输入费用',cache:'缓存读取费用',output:'输出费用',base:'单次费用',extra:'额外请求费用',error:'请检查输入：',missing:'请填写必需的用量和单价。',invalid:'数量必须为非负整数，缓存数不大于输入总量；单价需为非负数字，缓存数大于 0 时需填写缓存价；请求倍率须在 1 到 1,000 之间。'
+    },
+    en:{ordinary:'Uncached input',cache:'Cached input reads',output:'Output',base:'Base charge',extra:'Extra identical usage',error:'Check your inputs: ',missing:'Enter the required token counts and rates.'}
+  };
+  const original = Object.fromEntries([...document.querySelectorAll('[data-i]')].map(el=>[el.dataset.i,el.textContent]));
+  let language = 'en';
+  let latest = null;
+  const form = document.getElementById('cost-form');
+  const labels = () => ({...original,...translations[language]});
+  function amount(value,currency) { return `${currency} ${value === 0 ? '0.00' : value.toLocaleString(language,{maximumSignificantDigits:10})}`; }
+  function render(result) {
+    const text = labels();
+    document.getElementById('total').textContent=amount(result.estimatedCost,result.currency);
+    const tbody = document.getElementById('breakdown');
+    tbody.replaceChildren();
+    for (const [label,value] of [[text.ordinary,result.uncachedInputCost],[text.cache,result.cachedInputCost],[text.output,result.outputCost],[text.base,result.baseCost],[text.extra,result.extraAttemptCost]]) {
+      const row=document.createElement('tr');const heading=document.createElement('th');heading.scope='row';heading.textContent=label;const cell=document.createElement('td');cell.textContent=amount(value,result.currency);row.append(heading,cell);tbody.append(row);
+    }
+    document.getElementById('result').hidden=false;
+  }
+  document.getElementById('language').addEventListener('change',event=>{
+    language=event.target.value;document.documentElement.lang=language;
+    document.querySelectorAll('[data-i]').forEach(el=>el.textContent=labels()[el.dataset.i]);
+    document.getElementById('guide').href=`https://aipricespy.com/${language==='en'?'en':'zh-CN'}/services/guides/billing-basics`;
+    document.getElementById('error').textContent='';if(latest)render(latest);
+  });
+  form.addEventListener('submit',event=>{
+    event.preventDefault();const text=labels();document.getElementById('error').textContent='';
+    try {
+      const values={};
+      for (const name of ['inputTokens','outputTokens','cachedInputTokens','inputRate','outputRate','cachedInputRate','attemptMultiplier']) {
+        const raw=form.elements.namedItem(name).value.trim();
+        if(!raw && name!=='cachedInputRate') throw new RangeError(text.missing);
+        values[name]=raw ? Number(raw) : undefined;
+      }
+      latest=calculateCost({...values,currency:form.elements.namedItem('currency').value});render(latest);
+    } catch(error) {
+      if(!(error instanceof RangeError || error instanceof TypeError)) throw error;
+      latest=null;document.getElementById('result').hidden=true;
+      document.getElementById('error').textContent=text.error+(language==='zh-CN'?text.invalid:error.message);
+    }
+  });
+  document.getElementById('example').addEventListener('click',()=>{
+    for (const [name,value] of Object.entries({inputTokens:1000000,outputTokens:200000,cachedInputTokens:400000,inputRate:2,outputRate:10,cachedInputRate:0.5,attemptMultiplier:1,currency:'USD'})) form.elements.namedItem(name).value=value;
+    document.getElementById('example-note').hidden=false;form.requestSubmit();
+  });
+  form.addEventListener('input',()=>{latest=null;document.getElementById('result').hidden=true;document.getElementById('example-note').hidden=true;document.getElementById('error').textContent='';});
+</script>
+</body>
+</html>
