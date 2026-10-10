@@ -1,0 +1,9 @@
+{
+  "name": "ai-token-cost-calculator",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A local, dependency-free token cost calculator with explicit rates and cache accounting.",
+  "scripts": { "test": "node --test" },
+  "license": "MIT"
+}
